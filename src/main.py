@@ -15,7 +15,8 @@ from utils import Datasets
 @click.command()
 @click.option('--seed', type=int, default=0)
 @click.option('--data', type=str, default='NetEase')
-def main(seed, data):
+@click.option('--multimodal', type=str, default='')
+def main(seed, data, multimodal):
     set_seed(seed)
     conf = yaml.safe_load(open("config.yaml"))[data]
     conf['dataset'] = data
