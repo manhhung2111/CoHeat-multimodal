@@ -49,7 +49,7 @@ class CoHeat(nn.Module):
     """
     Class of CoHeat model
     """
-    def __init__(self, conf, raw_graph, bundles_freq):
+    def __init__(self, conf, raw_graph, bundles_freq, items_text_feature):
         """
         Initialize the model
         """
@@ -62,7 +62,7 @@ class CoHeat(nn.Module):
         self.num_bundles = conf["num_bundles"]
         self.num_items = conf["num_items"]
 
-        self.init_emb()
+        self.init_emb(items_text_feature=items_text_feature)
 
         assert isinstance(raw_graph, list)
         self.ub_graph, self.ui_graph, self.bi_graph = raw_graph
@@ -79,20 +79,31 @@ class CoHeat(nn.Module):
 
         self.bundles_freq = torch.FloatTensor(bundles_freq).to(self.device)
 
-    def init_emb(self):
+    def init_emb(self, items_text_feature):
         """
         Initialize embeddings
         """
         self.users_feature = nn.Parameter(torch.FloatTensor(self.num_users, self.embedding_size))
         nn.init.xavier_normal_(self.users_feature)
+
         self.bundles_feature = nn.Parameter(torch.FloatTensor(self.num_bundles, self.embedding_size))
         nn.init.xavier_normal_(self.bundles_feature)
+
         self.items_feature = nn.Parameter(torch.FloatTensor(self.num_items, self.embedding_size))
         nn.init.xavier_normal_(self.items_feature)
+
+        # Init items text feature
+        self.items_text_feature = nn.Parameter(torch.FloatTensor(items_text_feature), requires_grad=False)
+
+        # Learnable weight to combine id embeddings and text embeddings
+        self.item_embedding_alpha = nn.Parameter(torch.FloatTensor([0.5]))
+
         self.IL_layer = nn.Linear(self.embedding_size, self.embedding_size, bias=False)
         nn.init.xavier_normal_(self.IL_layer.weight)
+
         self.BL_layer = nn.Linear(self.embedding_size, self.embedding_size, bias=False)
         nn.init.xavier_normal_(self.BL_layer.weight)
+
 
     def get_aff_graph(self):
         """
@@ -211,6 +222,8 @@ class CoHeat(nn.Module):
             aff_users_feature, aff_items_feature = self.one_propagate(self.aff_view_graph_ori, self.users_feature, self.items_feature)
         else:
             aff_users_feature, aff_items_feature = self.one_propagate(self.aff_view_graph, self.users_feature, self.items_feature)
+
+        aff_items_feature = self.item_embedding_alpha * aff_items_feature + (1 - self.item_embedding_alpha) * self.items_text_feature
 
         aff_bundles_feature = self.get_aff_bundle_rep(aff_items_feature, test)
 

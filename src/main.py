@@ -9,14 +9,13 @@ import yaml
 from tqdm import tqdm
 
 from model import CoHeat
-from utils import Datasets
-
+from utils import Datasets, load_image_feature, load_text_feature
 
 @click.command()
 @click.option('--seed', type=int, default=0)
 @click.option('--data', type=str, default='NetEase')
-@click.option('--multimodal', type=str, default='')
-def main(seed, data, multimodal):
+
+def main(seed, data):
     set_seed(seed)
     conf = yaml.safe_load(open("config.yaml"))[data]
     conf['dataset'] = data
@@ -29,14 +28,18 @@ def main(seed, data, multimodal):
     pp = pprint.PrettyPrinter(indent=4, sort_dicts=False)
     pp.pprint(conf)
 
-    model = CoHeat(conf, dataset.graphs, dataset.bundles_freq).to(device)
-    optimizer = optim.Adam(model.parameters(), lr=conf["lr"], weight_decay=conf["lambda2"])
+    items_text_feature = load_text_feature();
+
+    model = CoHeat(conf, dataset.graphs, dataset.bundles_freq, items_text_feature=items_text_feature).to(device)
+    optimizer = optim.Adam(
+        model.parameters(), lr=conf["lr"], weight_decay=conf["lambda2"])
     crit = 20
     best_vld_rec, best_vld_ndcg, best_content = 0., 0., ''
 
     for epoch in range(1, conf["epochs"]+1):
         model.train(True)
-        pbar = tqdm(enumerate(dataset.train_loader), total=len(dataset.train_loader))
+        pbar = tqdm(enumerate(dataset.train_loader),
+                    total=len(dataset.train_loader))
         cur_instance_num, loss_avg, bpr_loss_avg, c_loss_avg = 0., 0., 0., 0.
         mult = epoch / conf["epochs"]
         psi = conf["max_temp"] ** mult
@@ -55,17 +58,22 @@ def main(seed, data, multimodal):
             bpr_loss_scalar = bpr_loss.detach()
             c_loss_scalar = c_loss.detach()
 
-            loss_avg = moving_avg(loss_avg, cur_instance_num, loss_scalar, batch[0].size(0))
-            bpr_loss_avg = moving_avg(bpr_loss_avg, cur_instance_num, bpr_loss_scalar, batch[0].size(0))
-            c_loss_avg = moving_avg(c_loss_avg, cur_instance_num, c_loss_scalar, batch[0].size(0))
+            loss_avg = moving_avg(loss_avg, cur_instance_num,
+                                  loss_scalar, batch[0].size(0))
+            bpr_loss_avg = moving_avg(
+                bpr_loss_avg, cur_instance_num, bpr_loss_scalar, batch[0].size(0))
+            c_loss_avg = moving_avg(
+                c_loss_avg, cur_instance_num, c_loss_scalar, batch[0].size(0))
             cur_instance_num += batch[0].size(0)
-            pbar.set_description(f'epoch: {epoch:3d} | loss: {loss_avg:8.4f} | bpr_loss: {bpr_loss_avg:8.4f} | c_loss: {c_loss_avg:8.4f}')
+            pbar.set_description(
+                f'epoch: {epoch:3d} | loss: {loss_avg:8.4f} | bpr_loss: {bpr_loss_avg:8.4f} | c_loss: {c_loss_avg:8.4f}')
 
         if epoch % conf['test_interval'] == 0:
             metrics = {}
             metrics['val'] = test(model, dataset.val_loader, conf, psi)
             metrics['test'] = test(model, dataset.test_loader, conf, psi)
-            content = form_content(epoch, metrics['val'], metrics['test'], conf['topk'])
+            content = form_content(
+                epoch, metrics['val'], metrics['test'], conf['topk'])
             print(content)
             if metrics['val']['recall'][crit] > best_vld_rec and metrics['val']['ndcg'][crit] > best_vld_ndcg:
                 best_vld_rec = metrics['val']['recall'][crit]
@@ -104,7 +112,7 @@ def form_content(epoch, val_results, test_results, ks):
     Form a printing content
     """
     content = f'     Epoch|  Rec@{ks[0]} |  Rec@{ks[1]} |  Rec@{ks[2]} |  Rec@{ks[3]} |' \
-             f' nDCG@{ks[0]} | nDCG@{ks[1]} | nDCG@{ks[2]} | nDCG@{ks[3]} |\n'
+        f' nDCG@{ks[0]} | nDCG@{ks[1]} | nDCG@{ks[2]} | nDCG@{ks[3]} |\n'
     val_content = f'{epoch:10d}|'
     val_results_recall = val_results['recall']
     for k in ks:
@@ -140,7 +148,8 @@ def test(model, dataloader, conf, tau):
     for users, ground_truth_u_b, train_mask_u_b in dataloader:
         pred_b = model.evaluate(rs, users.to(device), tau)
         pred_b -= 1e8 * train_mask_u_b.to(device)
-        tmp_metrics = get_metrics(tmp_metrics, ground_truth_u_b, pred_b, conf["topk"])
+        tmp_metrics = get_metrics(
+            tmp_metrics, ground_truth_u_b, pred_b, conf["topk"])
 
     metrics = {}
     for m, topk_res in tmp_metrics.items():
@@ -158,8 +167,10 @@ def get_metrics(metrics, grd, pred, topks):
     tmp = {"recall": {}, "ndcg": {}}
     for topk in topks:
         _, col_indice = torch.topk(pred, topk)
-        row_indice = torch.zeros_like(col_indice) + torch.arange(pred.shape[0], device=pred.device, dtype=torch.long).view(-1, 1)
-        is_hit = grd[row_indice.view(-1).to('cpu'), col_indice.view(-1).to('cpu')].view(-1, topk)
+        row_indice = torch.zeros_like(col_indice) + torch.arange(
+            pred.shape[0], device=pred.device, dtype=torch.long).view(-1, 1)
+        is_hit = grd[row_indice.view(-1).to('cpu'),
+                     col_indice.view(-1).to('cpu')].view(-1, topk)
 
         tmp["recall"][topk] = get_recall(pred, grd, is_hit, topk)
         tmp["ndcg"][topk] = get_ndcg(pred, grd, is_hit, topk)
@@ -192,7 +203,8 @@ def get_ndcg(pred, grd, is_hit, topk):
     Get ndcg
     """
     def DCG(hit, topk, device):
-        hit = hit/torch.log2(torch.arange(2, topk+2, device=device, dtype=torch.float))
+        hit = hit/torch.log2(torch.arange(2, topk+2,
+                             device=device, dtype=torch.float))
         return hit.sum(-1)
 
     def IDCG(num_pos, topk, device):

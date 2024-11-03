@@ -4,6 +4,8 @@ import numpy as np
 import scipy.sparse as sp
 import torch
 from torch.utils.data import Dataset, DataLoader
+import gdown
+from pathlib import Path
 
 
 def print_statistics(X, string):
@@ -15,15 +17,92 @@ def print_statistics(X, string):
     nonzero_row_indice, nonzero_col_indice = X.nonzero()
     unique_nonzero_row_indice = np.unique(nonzero_row_indice)
     unique_nonzero_col_indice = np.unique(nonzero_col_indice)
-    print(f'Ratio of non-empty rows: {len(unique_nonzero_row_indice)/X.shape[0]:8.4f}')
-    print(f'Ratio of non-empty cols: {len(unique_nonzero_col_indice)/X.shape[1]:8.4f}')
-    print(f'Density of matrix:       {len(nonzero_row_indice)/(X.shape[0]*X.shape[1]):8.4f}')
+    print(
+        f'Ratio of non-empty rows: {len(unique_nonzero_row_indice)/X.shape[0]:8.4f}')
+    print(
+        f'Ratio of non-empty cols: {len(unique_nonzero_col_indice)/X.shape[1]:8.4f}')
+    print(
+        f'Density of matrix:       {len(nonzero_row_indice)/(X.shape[0]*X.shape[1]):8.4f}')
+
+
+def load_text_feature(download=True):
+    try:
+        # Try to get the current file path (works in scripts)
+        current_file = Path(__file__)
+        project_root = current_file.parent.parent
+    except NameError:
+        # Alternative approach for notebooks
+        project_root = Path().absolute().parent
+
+    # Define paths
+    base_path = project_root / 'data' / 'multimodal'
+    text_feature_path = base_path / 'text_feature.npy'
+
+    # Create directory if it doesn't exist
+    os.makedirs(base_path, exist_ok=True)
+
+    # Google Drive folder URL
+    folder_url = "https://drive.google.com/drive/folders/1CKPnKJCtxklVWZSNswheGdpH1a4WY7XR"
+
+    if download and (not text_feature_path.exists()):
+        try:
+            # Download all files from the folder
+            gdown.download_folder(url=folder_url,
+                                  output=str(base_path),
+                                  quiet=False)
+        except Exception as e:
+            raise Exception(f"Failed to download files: {str(e)}")
+
+    # Load both features
+    try:
+        text_features = np.load(text_feature_path)
+        print("Load text feature successfully!")
+        return text_features
+    except Exception as e:
+        raise Exception(f"Failed to load numpy files: {str(e)}")
+
+
+def load_image_feature(download=True):
+    try:
+        # Try to get the current file path (works in scripts)
+        current_file = Path(__file__)
+        project_root = current_file.parent.parent
+    except NameError:
+        # Alternative approach for notebooks
+        project_root = Path().absolute().parent
+
+    # Define paths
+    base_path = project_root / 'data' / 'multimodal'
+    image_feature_path = base_path / 'image_feature.npy'
+
+    # Create directory if it doesn't exist
+    os.makedirs(base_path, exist_ok=True)
+
+    # Google Drive folder URL
+    folder_url = "https://drive.google.com/drive/folders/1CKPnKJCtxklVWZSNswheGdpH1a4WY7XR"
+
+    if download and (not image_feature_path.exists()):
+        try:
+            # Download all files from the folder
+            gdown.download_folder(url=folder_url,
+                                  output=str(base_path),
+                                  quiet=False)
+        except Exception as e:
+            raise Exception(f"Failed to download files: {str(e)}")
+
+    # Load both features
+    try:
+        image_features = np.load(image_feature_path)
+        return image_features
+    except Exception as e:
+        raise Exception(f"Failed to load numpy files: {str(e)}")
 
 
 class TrnDataset(Dataset):
     """
     Class of training dataset
     """
+
     def __init__(self, conf, u_b_pairs, u_b_graph, num_bundles, neg_sample=1):
         self.conf = conf
         self.u_b_pairs = u_b_pairs
@@ -37,10 +116,10 @@ class TrnDataset(Dataset):
 
         while True:
             i = np.random.randint(self.num_bundles)
-            if self.u_b_graph[user_b, i] == 0 and not i in all_bundles:                                                          
-                all_bundles.append(i)                                                                                                   
-                if len(all_bundles) == self.neg_sample+1:                                                                               
-                    break                                                                                                               
+            if self.u_b_graph[user_b, i] == 0 and not i in all_bundles:
+                all_bundles.append(i)
+                if len(all_bundles) == self.neg_sample+1:
+                    break
 
         return torch.LongTensor([user_b]), torch.LongTensor(all_bundles)
 
@@ -52,6 +131,7 @@ class TestDataset(Dataset):
     """
     Class of test dataset
     """
+
     def __init__(self, u_b_pairs, u_b_graph, u_b_graph_train, num_users, num_bundles):
         self.u_b_pairs = u_b_pairs
         self.u_b_graph = u_b_graph
@@ -65,7 +145,8 @@ class TestDataset(Dataset):
 
     def __getitem__(self, index):
         u_b_grd = torch.from_numpy(self.u_b_graph[index].toarray()).squeeze()
-        u_b_mask = torch.from_numpy(self.train_mask_u_b[index].toarray()).squeeze()
+        u_b_mask = torch.from_numpy(
+            self.train_mask_u_b[index].toarray()).squeeze()
 
         return index, u_b_grd, u_b_mask
 
@@ -77,6 +158,7 @@ class Datasets():
     """
     Class of datasets
     """
+
     def __init__(self, conf):
         self.path = conf['data_path']
         self.name = conf['dataset']
@@ -92,15 +174,21 @@ class Datasets():
         u_b_pairs_val, u_b_graph_val = self.get_ub("tune")
         u_b_pairs_test, u_b_graph_test = self.get_ub("test")
 
-        self.bundle_train_data = TrnDataset(conf, u_b_pairs_train, u_b_graph_train, self.num_bundles)
-        self.bundle_val_data = TestDataset(u_b_pairs_val, u_b_graph_val, u_b_graph_train, self.num_users, self.num_bundles)
-        self.bundle_test_data = TestDataset(u_b_pairs_test, u_b_graph_test, u_b_graph_train, self.num_users, self.num_bundles)
+        self.bundle_train_data = TrnDataset(
+            conf, u_b_pairs_train, u_b_graph_train, self.num_bundles)
+        self.bundle_val_data = TestDataset(
+            u_b_pairs_val, u_b_graph_val, u_b_graph_train, self.num_users, self.num_bundles)
+        self.bundle_test_data = TestDataset(
+            u_b_pairs_test, u_b_graph_test, u_b_graph_train, self.num_users, self.num_bundles)
 
         self.graphs = [u_b_graph_train, u_i_graph, b_i_graph]
 
-        self.train_loader = DataLoader(self.bundle_train_data, batch_size=batch_size_train, shuffle=True, num_workers=10, drop_last=True)
-        self.val_loader = DataLoader(self.bundle_val_data, batch_size=batch_size_test, shuffle=False, num_workers=20)
-        self.test_loader = DataLoader(self.bundle_test_data, batch_size=batch_size_test, shuffle=False, num_workers=20)
+        self.train_loader = DataLoader(
+            self.bundle_train_data, batch_size=batch_size_train, shuffle=True, num_workers=10, drop_last=True)
+        self.val_loader = DataLoader(
+            self.bundle_val_data, batch_size=batch_size_test, shuffle=False, num_workers=20)
+        self.test_loader = DataLoader(
+            self.bundle_test_data, batch_size=batch_size_test, shuffle=False, num_workers=20)
 
         self.bundles_freq = np.asarray(u_b_graph_train.sum(0)).squeeze()
 
@@ -119,7 +207,8 @@ class Datasets():
         Get a bundle-item graph
         """
         with open(os.path.join(self.path, self.name, 'bundle_item.txt'), 'r') as f:
-            b_i_pairs = list(map(lambda s: tuple(int(i) for i in s[:-1].split('\t')), f.readlines()))
+            b_i_pairs = list(map(lambda s: tuple(int(i)
+                             for i in s[:-1].split('\t')), f.readlines()))
         indices = np.array(b_i_pairs, dtype=np.int32)
         values = np.ones(len(b_i_pairs), dtype=np.float32)
         b_i_graph = sp.coo_matrix(
@@ -132,10 +221,11 @@ class Datasets():
         Get a user-item graph
         """
         with open(os.path.join(self.path, self.name, 'user_item.txt'), 'r') as f:
-            u_i_pairs = list(map(lambda s: tuple(int(i) for i in s[:-1].split('\t')), f.readlines()))
+            u_i_pairs = list(map(lambda s: tuple(int(i)
+                             for i in s[:-1].split('\t')), f.readlines()))
         indices = np.array(u_i_pairs, dtype=np.int32)
         values = np.ones(len(u_i_pairs), dtype=np.float32)
-        u_i_graph = sp.coo_matrix( 
+        u_i_graph = sp.coo_matrix(
             (values, (indices[:, 0], indices[:, 1])), shape=(self.num_users, self.num_items)).tocsr()
         print_statistics(u_i_graph, 'U-I statistics')
         return u_i_pairs, u_i_graph
@@ -145,7 +235,8 @@ class Datasets():
         Get a user-bundle graph
         """
         with open(os.path.join(self.path, self.name, f'user_bundle_{task}.txt'), 'r') as f:
-            u_b_pairs = list(map(lambda s: tuple(int(i) for i in s[:-1].split('\t')), f.readlines()))
+            u_b_pairs = list(map(lambda s: tuple(int(i)
+                             for i in s[:-1].split('\t')), f.readlines()))
         indices = np.array(u_b_pairs, dtype=np.int32)
         values = np.ones(len(u_b_pairs), dtype=np.float32)
         u_b_graph = sp.coo_matrix(
