@@ -49,7 +49,7 @@ class CoHeat(nn.Module):
     """
     Class of CoHeat model
     """
-    def __init__(self, conf, raw_graph, bundles_freq, items_text_feature):
+    def __init__(self, conf, raw_graph, bundles_freq, items_image_feature):
         """
         Initialize the model
         """
@@ -62,7 +62,7 @@ class CoHeat(nn.Module):
         self.num_bundles = conf["num_bundles"]
         self.num_items = conf["num_items"]
 
-        self.init_emb(items_text_feature=items_text_feature)
+        self.init_emb(items_image_feature=items_image_feature)
 
         assert isinstance(raw_graph, list)
         self.ub_graph, self.ui_graph, self.bi_graph = raw_graph
@@ -79,7 +79,31 @@ class CoHeat(nn.Module):
 
         self.bundles_freq = torch.FloatTensor(bundles_freq).to(self.device)
 
-    def init_emb(self, items_text_feature):
+    def init_image_emb(self):
+        """
+        Initialize the image embeddings with rows of zeros for missing images, 
+        and replace these rows with embeddings for item IDs where applicable
+        """
+        # Verify shapes match
+        assert self.items_text_feature.shape == self.items_feature.shape, \
+            f"Shape mismatch: text feature {self.items_text_feature.shape} != item feature {self.items_feature.shape}"
+        
+        # Find indices where all values in a row are zero (missing images)
+        zero_rows = torch.all(self.items_text_feature == 0, dim=1)
+        
+        # Count number of zero rows
+        num_zero_rows = zero_rows.sum().item()
+        total_rows = len(zero_rows)
+        
+        # Replace zero rows with corresponding item ID embeddings
+        self.items_text_feature.data[zero_rows] = self.items_feature.data[zero_rows]
+        
+        print(f"Replaced {num_zero_rows}/{total_rows} rows ({(num_zero_rows/total_rows)*100:.2f}%) " 
+            f"of zeros with item ID embeddings")
+
+
+
+    def init_emb(self, items_image_feature):
         """
         Initialize embeddings
         """
@@ -93,7 +117,8 @@ class CoHeat(nn.Module):
         nn.init.xavier_normal_(self.items_feature)
 
         # Init items text feature
-        self.items_text_feature = nn.Parameter(torch.FloatTensor(items_text_feature), requires_grad=False)
+        self.items_text_feature = nn.Parameter(torch.FloatTensor(items_image_feature), requires_grad=False)
+        self.init_image_emb()
 
         # Learnable weight to combine id embeddings and text embeddings
         self.item_embedding_alpha = nn.Parameter(torch.FloatTensor([0.5]))

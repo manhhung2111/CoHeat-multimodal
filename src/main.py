@@ -28,9 +28,9 @@ def main(seed, data):
     pp = pprint.PrettyPrinter(indent=4, sort_dicts=False)
     pp.pprint(conf)
 
-    items_text_feature = load_text_feature();
+    items_image_feature = load_image_feature();
 
-    model = CoHeat(conf, dataset.graphs, dataset.bundles_freq, items_text_feature=items_text_feature).to(device)
+    model = CoHeat(conf, dataset.graphs, dataset.bundles_freq, items_image_feature=items_image_feature).to(device)
     optimizer = optim.Adam(
         model.parameters(), lr=conf["lr"], weight_decay=conf["lambda2"])
     crit = 20

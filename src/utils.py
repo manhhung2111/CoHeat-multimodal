@@ -93,6 +93,7 @@ def load_image_feature(download=True):
     # Load both features
     try:
         image_features = np.load(image_feature_path)
+        print("Load image features successfully")
         return image_features
     except Exception as e:
         raise Exception(f"Failed to load numpy files: {str(e)}")
